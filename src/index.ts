@@ -27,33 +27,54 @@ app.get(ENDPOINT, async (req, res) => {
     const baseItemLink = (Array.isArray(req.query.base_item_link) ? req.query.base_item_link[0] : req.query.base_item_link) as string | undefined;
     const itemDescription = (Array.isArray(req.query.item_description) ? req.query.item_description[0] : req.query.item_description) as string | undefined;
     const itemImage = (Array.isArray(req.query.item_image) ? req.query.item_image[0] : req.query.item_image) as string | undefined;
+    const dataPath = (Array.isArray(req.query.data_path) ? req.query.data_path[0] : req.query.data_path) as string | undefined;
 
-    // Get JSON data
-    const feedResponse = await fetch(url);
-    const feedData = await feedResponse.json() as JSONFeedItem[];
+    try {
+        // Get JSON data
+        const feedResponse = await fetch(url);
+        let feedData = await feedResponse.json() as JSONFeedItem[] | { [key: string]: any };
 
-    // Generate RSS feed
-    const feed = new Feed({
-        id: url,
-        title,
-        description: description || '',
-        link: url,
-        copyright: '',
-    })
-    for (const item of feedData) {
-        feed.addItem({
-            title: item[itemTitle],
-            id: (baseItemLink || '') + item[itemLink],
-            link: (baseItemLink || '') + item[itemLink],
-            date: new Date(item[itemDate]),
-            description: itemDescription ? item[itemDescription] : '',
-            image: itemImage ? item[itemImage] : '',
+        if (dataPath && !Array.isArray(feedData)) {
+            const dataPathArray = dataPath.split('.');
+            for (const path of dataPathArray) {
+                if (feedData.hasOwnProperty(path)) {
+                    feedData = (feedData as { [key: string]: any })[path];
+                } else {
+                    return res.status(400).send('Supplied data path does not exist');
+                }
+            }
+        }
+
+        if (!Array.isArray(feedData)) {
+            return res.status(400).send('Supplied data path is not an array');
+        }
+
+        // Generate RSS feed
+        const feed = new Feed({
+            id: url,
+            title,
+            description: description || '',
+            link: url,
+            copyright: '',
         })
-    }
+        for (const item of feedData) {
+            feed.addItem({
+                title: item[itemTitle],
+                id: (baseItemLink || '') + item[itemLink],
+                link: (baseItemLink || '') + item[itemLink],
+                date: new Date(item[itemDate]),
+                description: itemDescription ? item[itemDescription] : '',
+                image: itemImage ? item[itemImage] : '',
+            })
+        }
 
-    // Send RSS feed
-    res.set('Content-Type', 'text/xml');
-    res.send(feed.rss2());
+        // Send RSS feed
+        res.set('Content-Type', 'text/xml');
+        res.send(feed.rss2());
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Internal server error');
+    }
 });
 
 app.listen(PORT, () => {
